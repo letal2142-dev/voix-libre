@@ -61,7 +61,7 @@ textarea{width:100%;min-height:170px;padding:11px;border-radius:10px;border:1px 
 .tn-scale .z{position:absolute;top:0;bottom:0}
 .tn-scale .t{position:absolute;bottom:0;width:1px;background:#eceef566}
 .tn-scale .t.c{width:2px;height:100%;background:#eceef5cc;margin-left:-1px}
-.tn-ndl{position:absolute;top:3px;bottom:3px;width:10px;margin-left:-5px;border-radius:5px;background:var(--txt);box-shadow:0 0 0 2px #12131a;left:50%;transition:left .08s linear,opacity .3s}
+.tn-ndl{position:absolute;top:3px;bottom:3px;width:10px;margin-left:-5px;border-radius:5px;background:var(--txt);box-shadow:0 0 0 2px #12131a;left:50%;transition:left .15s ease-out,opacity .3s}
 .tn-arrow{position:absolute;top:50%;transform:translateY(-50%);font:800 22px system-ui;color:var(--bad);display:none}
 .tn-lab{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:3px;font-variant-numeric:tabular-nums}
 .lvl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);margin-top:6px}
@@ -174,7 +174,8 @@ input[type=range]{width:100%;accent-color:var(--acc)}
       <div class="mut" id="recInfo" style="margin-top:8px"></div>
       <div id="recList"></div>
       <button class="btn alt" id="recMore" hidden>Voir 10 de plus</button>
-      <div class="mut" style="margin-top:8px;font-size:12px">Tessitures : classements par voix de Singing Carrots. « Karaoké » ouvre une recherche YouTube de la version sans voix.</div>
+      <button class="btn" id="freeAny">🎤 Chanter librement (n'importe quelle chanson)</button>
+      <div class="mut" style="margin-top:8px;font-size:12px">« Chanter » : lance le karaoké (YouTube) sur un autre appareil ou dans un autre onglet, casque sur les oreilles, et chante : le curseur montre ton écart à la note juste la plus proche. Tessitures : classements par voix de Singing Carrots.</div>
     </div>
 
     <div class="card">
@@ -194,6 +195,24 @@ input[type=range]{width:100%;accent-color:var(--acc)}
       <input type="file" id="impInst" accept="audio/*" hidden>
       <button class="btn" id="btnImport" disabled>Analyser et ajouter</button>
       <div class="sub" id="impMsg" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div id="freeView" hidden>
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <h2 id="frTitle" style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Chant libre</h2>
+        <button class="btn alt small" id="frBack" style="flex:0 0 auto">← Liste</button>
+      </div>
+      <div class="mut" id="frInfo" style="margin-top:4px"></div>
+      <a class="btn alt" id="frKaraoke" href="#" target="_blank" rel="noopener" hidden>Ouvrir le karaoké ↗</a>
+      <div class="big" id="frNote">–</div>
+      <canvas id="frRoll" width="1000" height="600" style="margin-top:8px"></canvas>
+      <div class="tuner" id="tunerF"></div>
+      <div class="lvl"><span>Micro</span><div class="lvlbar"><i id="lvlF"></i></div></div>
+      <button class="btn" id="frStart">▶ Démarrer le micro</button>
+      <div class="warn" id="frErr"></div>
+      <div class="mut" style="margin-top:8px">Sans la mélodie de la chanson, le curseur compare ta voix à la note juste la plus proche : il montre si tu chantes « entre deux notes ». La bande verte = la zone de la chanson.</div>
     </div>
   </div>
 
@@ -459,10 +478,9 @@ function splitPhrases(notes, gap = 0.45, minDur = 3, maxDur = 12) {
 /* ---------- Chansons intégrées (domaine public) ---------- */
 /* notes : [demi-tons par rapport à la tonique Do4, durée en temps] ; une ligne = une phrase */
 const SONGS = [
-  { id: 'ex-tenues', title: 'Échauffement · notes tenues', ex: true, bpm: 72, bpb: 4, phrases: [
-    [[0,4],[2,4],[4,4],[2,4],[0,4]], [[4,4],[5,4],[7,4],[5,4],[4,4]] ] },
-  { id: 'ex-gamme', title: 'Échauffement · gamme', ex: true, bpm: 80, bpb: 4, phrases: [
-    [[0,1],[2,1],[4,1],[5,1],[7,1],[5,1],[4,1],[2,1],[0,4]], [[0,1],[4,1],[7,1],[12,1],[7,1],[4,1],[0,2]] ] },
+  { id: 'ex-tenues', title: 'Échauffement · notes tenues', ex: true, gen: 'tenues' },
+  { id: 'ex-gamme', title: 'Échauffement · gamme de 5 notes', ex: true, gen: 'gamme' },
+  { id: 'ex-arpege', title: 'Échauffement · arpège', ex: true, gen: 'arpege' },
   { id: 'clair-lune', title: 'Au clair de la lune', bpm: 100, bpb: 4, phrases: [
     [[0,1],[0,1],[0,1],[2,1],[4,2],[2,2],[0,1],[4,1],[2,1],[2,1],[0,4]],
     [[0,1],[0,1],[0,1],[2,1],[4,2],[2,2],[0,1],[4,1],[2,1],[2,1],[0,4]],
@@ -483,20 +501,43 @@ const SONGS = [
     [[-5,.75],[-5,.25],[7,1],[4,1],[0,1],[-1,1],[-3,2]],
     [[5,.75],[5,.25],[4,1],[0,1],[2,1],[0,3]] ] },
 ];
-function songRel(def) { const r = []; def.phrases.forEach(p => p.forEach(([s]) => r.push(s))); return [Math.min(...r), Math.max(...r)]; }
+function songRel(def) { const r = []; def.phrases.forEach(p => p.forEach(([s]) => { if (s != null) r.push(s); })); return [Math.min(...r), Math.max(...r)]; }
+/* Échauffement construit dans la zone confortable : le motif monte d'un demi-ton à chaque répétition, puis redescend.
+   Valeurs en demi-tons par rapport à Do4 (60), chaque répétition a son propre accord. */
+function genWarmup(kind, zone) {
+  const [cl, ch] = zone, pat = {
+    gamme:  { notes: [[0,1],[2,1],[4,1],[5,1],[7,1],[5,1],[4,1],[2,1],[0,3],[null,1]], span: 7, bpm: 96 },
+    arpege: { notes: [[0,1],[4,1],[7,1],[12,1],[7,1],[4,1],[0,3],[null,1]], span: 12, bpm: 90 },
+    tenues: { notes: [[0,4],[null,1],[4,4],[null,1],[7,4],[null,2]], span: 7, bpm: 72 },
+  }[kind];
+  const tonics = [];
+  const step = ch - pat.span - cl > 7 ? 2 : 1;            // grande zone : on monte par tons pour la couvrir en 8 répétitions
+  for (let t = cl; t + pat.span <= ch && tonics.length < 8; t += step) tonics.push(t);
+  if (!tonics.length) tonics.push(Math.round((cl + ch) / 2 - pat.span / 2));
+  const seq = tonics.concat(tonics.slice(0, -1).reverse());
+  const phrases = [], chords = []; let beat = 0;
+  for (const t of seq) {
+    const len = pat.notes.reduce((a, n) => a + n[1], 0);
+    phrases.push(pat.notes.map(([s, d]) => [s == null ? null : t - 60 + s, d]));
+    chords.push({ b0: beat, b1: beat + len, root: t - 60, tones: [t - 60, t - 56, t - 53] });
+    beat += len;
+  }
+  return { bpm: pat.bpm, bpb: 4, phrases, chords };
+}
 /* Meilleure transposition : la mélodie dans la zone confortable de chacun (à l'octave près) */
-function zoneCost(lo, hi, z) {
+function zoneCost(lo, hi, z, fold = true) {
   let best = 1e9;
-  for (const o of [0, -12, 12]) {
+  for (const o of (fold ? [0, -12, 12] : [0])) {
     const c = Math.max(0, z[0] - (lo + o)) * 10 + Math.max(0, (hi + o) - z[1]) * 10 + Math.abs((lo + hi) / 2 + o - (z[0] + z[1]) / 2) * 0.1 + (o ? 0.5 : 0);
     if (c < best) best = c;
   }
   return best;
 }
-function bestTranspose(lo, hi, zones, minT = -12, maxT = 12) {
+/* fold = false (solo) : la mélodie est placée à la hauteur réelle de la voix, pas seulement à l'octave près */
+function bestTranspose(lo, hi, zones, fold = true, minT = -24, maxT = 24) {
   let best = 0, bestCost = 1e9;
   for (let T = minT; T <= maxT; T++) {
-    const cost = zones.reduce((a, z) => a + zoneCost(lo + T, hi + T, z), 0) + Math.abs(T) * 0.001;
+    const cost = zones.reduce((a, z) => a + zoneCost(lo + T, hi + T, z, fold), 0) + Math.abs(T) * 0.001;
     if (cost < bestCost) { bestCost = cost; best = T; }
   }
   return best;
@@ -533,13 +574,26 @@ function buildSynth(def, T) {
   let beat = 0;
   def.phrases.forEach((p, k) => {
     const t0 = count + beat * bd;
-    p.forEach(([s, d]) => { notes.push({ t: count + beat * bd, d: d * bd * 0.92, m: 60 + T + s, ph: k }); beat += d; });
+    p.forEach(([s, d]) => { if (s != null) notes.push({ t: count + beat * bd, d: d * bd * 0.92, m: 60 + T + s, ph: k }); beat += d; });
     phrases.push({ t0, t1: count + beat * bd });
   });
-  const chords = harmonize(def).map(c => ({ t: count + c.b0 * bd, d: (c.b1 - c.b0) * bd, root: c.root + T, tones: c.tones.map(x => x + T) }));
+  const chords = (def.chords || harmonize(def)).map(c => ({ t: count + c.b0 * bd, d: (c.b1 - c.b0) * bd, root: c.root + T, tones: c.tones.map(x => x + T) }));
   return { notes, phrases, chords, bd, count, duration: count + beat * bd + 1.5 };
 }
 
+/* duo : chaque phrase est placée à l'octave qui convient le mieux à son chanteur */
+function octaveByPhrase(notes, zoneOfPhrase) {
+  const byPh = {};
+  notes.forEach(n => (byPh[n.ph] = byPh[n.ph] || []).push(n));
+  for (const k in byPh) {
+    const z = zoneOfPhrase(+k); if (!z) continue;
+    const ms = byPh[k].map(n => n.m), lo = Math.min(...ms), hi = Math.max(...ms);
+    let bo = 0, bc = 1e9;
+    for (const o of [0, -12, 12, -24, 24]) { const c = zoneCost(lo + o, hi + o, z, false) + Math.abs(o) * 0.001; if (c < bc) { bc = c; bo = o; } }
+    byPh[k].forEach(n => { n.m += bo; });
+  }
+  return notes;
+}
 /* ---------- Justesse et score ---------- */
 /* écart en cents, ramené à l'octave la plus proche (homme et femme chantent la même chanson) */
 function foldCents(sung, target) { const d = (sung - target) * 100; return ((d + 600) % 1200 + 1200) % 1200 - 600; }
@@ -714,7 +768,7 @@ class Stair {
   }
   result() { return this.ok.length ? [Math.min(...this.ok), Math.max(...this.ok)] : null; }
 }
-if (typeof module !== 'undefined') module.exports = { REAL, recommend, noteToMidi, VoiceGate, Stair, yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
+if (typeof module !== 'undefined') module.exports = { genWarmup, octaveByPhrase, zoneCost, REAL, recommend, noteToMidi, VoiceGate, Stair, yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
 </script>
 
 <script>
@@ -749,7 +803,7 @@ function tab(which) {
     $('tab' + n).classList.toggle('on', n.toLowerCase() === which);
     $('sec' + n).classList.toggle('on', n.toLowerCase() === which);
   });
-  stopMic();
+  stopMic(); stopFree();
   if (which !== 'chant') P.stop();
   if (which === 'voix') showVoix();
   if (which === 'prompt') initPrompt();
@@ -802,13 +856,17 @@ function makeTuner(el) {
   html += '<div class="tn-lab"><span>−50 ¢ trop bas</span><span>pile</span><span>trop haut +50 ¢</span></div>';
   el.innerHTML = html;
   const q = s => el.querySelector(s), arrows = el.querySelectorAll('.tn-arrow');
-  let ema = null, lastT = 0;
+  let win = [], lastT = 0;
   return {
     set(c) {
       const now = performance.now();
-      if (c == null) { if (now - lastT > 400) { q('.tn-ndl').style.opacity = .2; q('.tn-num').textContent = '–'; q('.tn-word').textContent = ''; ema = null; arrows[0].style.display = arrows[1].style.display = 'none'; } return; }
-      ema = ema == null || Math.abs(c - ema) > 60 ? c : ema * 0.5 + c * 0.5; lastT = now;
-      const v = Math.round(ema), a = Math.abs(v);
+      if (c == null) { if (now - lastT > 500) { q('.tn-ndl').style.opacity = .2; q('.tn-num').textContent = '–'; q('.tn-word').textContent = ''; win = []; arrows[0].style.display = arrows[1].style.display = 'none'; } return; }
+      // moyenne de la dernière demi-seconde ; on repart à zéro si la note change franchement
+      win = win.filter(p => now - p.t <= 500);
+      const mean0 = win.length ? win.reduce((a, p) => a + p.c, 0) / win.length : c;
+      if (Math.abs(c - mean0) > 80) win = [];
+      win.push({ t: now, c }); lastT = now;
+      const v = Math.round(win.reduce((a, p) => a + p.c, 0) / win.length), a = Math.abs(v);
       const col = a <= 10 ? 'var(--acc)' : a <= 25 ? '#9be7c9' : a <= 50 ? 'var(--acc2)' : 'var(--bad)';
       const nd = q('.tn-ndl'); nd.style.left = (50 + Math.max(-50, Math.min(50, v))) + '%'; nd.style.opacity = 1; nd.style.background = col;
       q('.tn-num').textContent = (v > 0 ? '+' : v < 0 ? '−' : '±') + a + ' ¢'; q('.tn-num').style.color = col;
@@ -1047,7 +1105,7 @@ const DB = {
 };
 const best = LS.get('voixlibre.best', {});
 
-let recWho = 1, recN = 10;
+let recWho = 1, recN = 10, recCache = [];
 function showRec() {
   $('rec1').textContent = pName(1); $('rec2').textContent = pName(2);
   $('rec1').classList.toggle('on', recWho === 1); $('rec2').classList.toggle('on', recWho === 2);
@@ -1055,14 +1113,16 @@ function showRec() {
   if (!hasRange(recWho)) { $('recInfo').textContent = `Fais le test dans « Ma voix » pour ${pName(recWho)} : l'appli choisira les chansons qui tiennent dans sa voix.`; $('recList').innerHTML = ''; $('recMore').hidden = true; return; }
   const r = recommend(p.low, p.high), [cl, ch] = comfort(p.low, p.high);
   $('recInfo').textContent = `${r.length} chansons tiennent dans ta voix (${fullName(p.low)} → ${fullName(p.high)}). Les plus confortables d'abord :`;
-  $('recList').innerHTML = r.slice(0, recN).map(x => {
+  $('recList').innerHTML = r.slice(0, recN).map((x, i) => {
     const a = x.lo + x.oct + x.tr, b = x.hi + x.oct + x.tr;
     const fit = x.outC === 0 ? '<span class="pill ok">Confortable</span>' : `<span class="pill warn">${x.outC} demi-ton${x.outC > 1 ? 's' : ''} hors zone confortable</span>`;
     const oct = x.oct ? `<span class="pill">à l'octave ${x.oct < 0 ? 'en dessous' : 'au-dessus'}</span>` : '';
     const tr = x.tr ? `<span class="pill">karaoké ${x.tr > 0 ? '+' : '−'}${Math.abs(x.tr)} demi-ton${Math.abs(x.tr) > 1 ? 's' : ''}</span>` : '';
     const q = encodeURIComponent(`${x.a} ${x.t} karaoke`);
-    return `<div class="song"><div class="info"><div class="t">${esc(x.t)}</div><div class="s">${esc(x.a)} · tu chantes ${fullName(a)} → ${fullName(b)}</div><div>${fit}${oct}${tr}</div></div><a class="btn alt small" href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">Karaoké ↗</a></div>`;
+    return `<div class="song"><div class="info"><div class="t">${esc(x.t)}</div><div class="s">${esc(x.a)} · tu chantes ${fullName(a)} → ${fullName(b)}</div><div>${fit}${oct}${tr}</div></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn small" data-free="${i}">Chanter</button><a class="btn alt small" href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">Karaoké ↗</a></div></div>`;
   }).join('');
+  recCache = r;
+  document.querySelectorAll('[data-free]').forEach(b => b.onclick = () => openFree(recCache[+b.dataset.free]));
   $('recMore').hidden = r.length <= recN;
 }
 $('rec1').onclick = () => { recWho = 1; recN = 10; showRec(); };
@@ -1072,7 +1132,7 @@ $('recMore').onclick = () => { recN += 10; showRec(); };
 let imported = [];
 async function showList() {
   recWho = who; showRec();
-  $('playView').hidden = true; $('listView').hidden = false;
+  $('playView').hidden = true; $('freeView').hidden = true; $('listView').hidden = false;
   imported = await DB.all();
   const z1 = zoneOf(1), z2 = zoneOf(2);
   const zones = [z1, z2].filter(Boolean);
@@ -1171,13 +1231,25 @@ const P = {
   },
   build() {
     if (this.def) {
-      const [lo, hi] = songRel(this.def);
-      if (this.T == null) { const zs = this.zones(); this.T = zs.length ? bestTranspose(60 + lo, 60 + hi, zs) : 0; }
-      const b = buildSynth(this.def, this.T);
+      const duo = this.mode === 'duo', z1 = duo ? (zoneOf(1) || zoneOf(2)) : zoneOf(this.singer);
+      let b;
+      if (this.def.gen) {
+        // échauffement construit dans la zone du chanteur (zone standard si pas encore de test)
+        const z = z1 || (sex === 'f' ? [57, 69] : [45, 57]);
+        if (this.T == null) this.T = 0;
+        b = buildSynth({ ...genWarmup(this.def.gen, z) }, this.T);
+        $('trVal').textContent = 'départ ' + frName(z[0] + this.T);
+        $('trNote').textContent = `Le motif monte à chaque répétition puis redescend, dans ta zone confortable (${fullName(z[0])} → ${fullName(z[1])}).`;
+      } else {
+        const [lo, hi] = songRel(this.def);
+        if (this.T == null) { const zs = this.zones(); this.T = zs.length ? bestTranspose(60 + lo, 60 + hi, zs, duo) : 0; }
+        b = buildSynth(this.def, this.T);
+        $('trVal').textContent = FR[((this.T % 12) + 12) % 12] + ' maj.';
+        $('trNote').textContent = 'Transposée pour ta voix. − / + : un demi-ton plus bas ou plus haut.';
+      }
+      if (duo) octaveByPhrase(b.notes, k => zoneOf(this.singerOf(k)));
       Object.assign(this, { notes: b.notes, phrases: b.phrases, chords: b.chords, bd: b.bd, count: b.count, duration: b.duration, rate: 1 });
       $('plTitle').textContent = this.def.title;
-      $('trVal').textContent = FR[((this.T % 12) + 12) % 12] + ' maj.';
-      $('trNote').textContent = 'Transposition exacte, au demi-ton près.';
     } else {
       this.rate = Math.pow(2, this.semis / 12);
       this.notes = this.song.notes.map(n => ({ ...n, m: n.m + this.semis }));
@@ -1293,6 +1365,87 @@ function scheduleSynth(p, when) {
     o.connect(g); g.connect(p.master); o.start(t0); o.stop(t0 + 0.08);
   }
 }
+
+/* ---- chant libre : écart à la note juste la plus proche ---- */
+const tunerF = makeTuner($('tunerF'));
+const FREE = { on: false, song: null, trail: [], gate: new VoiceGate(), view: null, last: 0 };
+function openFree(song) {
+  P.stop(); stopFree();
+  FREE.song = song || null; FREE.trail = []; FREE.view = null;
+  $('listView').hidden = true; $('playView').hidden = true; $('freeView').hidden = false; $('frErr').textContent = '';
+  if (song) {
+    const a = song.lo + song.oct + song.tr, b = song.hi + song.oct + song.tr;
+    $('frTitle').textContent = song.t;
+    $('frInfo').innerHTML = `${esc(song.a)} · tu chantes ${fullName(a)} → ${fullName(b)}` + (song.oct ? ` · <b>à l'octave ${song.oct < 0 ? 'en dessous' : 'au-dessus'}</b> de l'original` : '') + (song.tr ? ` · karaoké réglé à ${song.tr > 0 ? '+' : '−'}${Math.abs(song.tr)}` : '');
+    $('frKaraoke').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(`${song.a} ${song.t} karaoke`); $('frKaraoke').hidden = false;
+    FREE.band = [a, b];
+  } else {
+    $('frTitle').textContent = 'Chant libre'; $('frInfo').textContent = "Chante n'importe quelle chanson : le curseur montre ton écart à la note juste la plus proche."; $('frKaraoke').hidden = true;
+    const z = zoneOf(who); FREE.band = z;
+  }
+  $('frNote').textContent = '–'; tunerF.set(null); drawFree(); window.scrollTo(0, 0);
+}
+async function startFree() {
+  const ctx = audioCtx(); await ctx.resume();
+  try {
+    FREE.stream = await getMic(true);
+    FREE.an = ctx.createAnalyser(); FREE.an.fftSize = 2048; FREE.buf = new Float32Array(2048);
+    ctx.createMediaStreamSource(FREE.stream).connect(FREE.an);
+  } catch (e) { $('frErr').textContent = "Micro bloqué : ouvre l'appli depuis son adresse https et autorise le micro."; return; }
+  FREE.on = true; FREE.gate = new VoiceGate(); $('frStart').textContent = '■ Arrêter';
+  freeLoop();
+}
+function stopFree() {
+  FREE.on = false;
+  if (FREE.stream) FREE.stream.getTracks().forEach(t => t.stop());
+  FREE.stream = FREE.an = null; $('frStart').textContent = '▶ Démarrer le micro';
+}
+function freeLoop() {
+  if (!FREE.on) return;
+  const now = performance.now();
+  if (now - FREE.last > 30) {
+    FREE.last = now;
+    FREE.an.getFloatTimeDomainData(FREE.buf);
+    const r = yin(FREE.buf, AC.sampleRate), on = FREE.gate.push(r.rms);
+    setLevel('lvlF', r.rms, on);
+    const m = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
+    if (m != null) {
+      const n = Math.round(m), c = (m - n) * 100;
+      $('frNote').textContent = fullName(n); tunerF.set(c);
+      FREE.trail.push({ t: now, m, k: judge(c) });
+    } else { tunerF.set(null); FREE.trail.push({ t: now, m: null }); }
+    while (FREE.trail.length && now - FREE.trail[0].t > 8000) FREE.trail.shift();
+  }
+  drawFree();
+  requestAnimationFrame(freeLoop);
+}
+function drawFree() {
+  const cv = $('frRoll'); if (!cv || $('freeView').hidden) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1), cw = cv.clientWidth || 360;
+  const W = Math.round(cw * dpr), H = Math.round(cw * 0.62 * dpr);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext('2d'), now = performance.now();
+  let lastM = null; for (let i = FREE.trail.length - 1; i >= 0; i--) if (FREE.trail[i].m != null) { lastM = FREE.trail[i].m; break; }
+  const goal = lastM != null ? Math.round(lastM) : (FREE.band ? (FREE.band[0] + FREE.band[1]) / 2 : 55);
+  FREE.view = FREE.view == null ? goal : FREE.view + (goal - FREE.view) * 0.06;
+  const span = 9, lo = FREE.view - span / 2, rowH = H / span, y = m => H - (m - lo) * rowH;
+  g.clearRect(0, 0, W, H); g.textBaseline = 'middle'; g.font = `${Math.round(12 * dpr)}px system-ui`;
+  for (let m = Math.floor(lo); m <= Math.ceil(lo + span); m++) {
+    const inBand = FREE.band && m >= FREE.band[0] && m <= FREE.band[1];
+    g.fillStyle = inBand ? '#17261f' : ([1, 3, 6, 8, 10].includes(pc(m)) ? '#14161e' : '#1a1c26'); g.fillRect(0, y(m) - rowH / 2, W, rowH);
+    g.fillStyle = '#2c2f3d'; g.fillRect(0, y(m) - 0.5 * dpr, W, dpr);          // ligne = note juste
+    g.fillStyle = '#7a8099'; g.fillText(frName(m), 4 * dpr, y(m) - rowH * 0.25);
+  }
+  const col = { ok: '#5ad1a8', near: '#f2b84b', off: '#ef6f6c' };
+  for (const p of FREE.trail) {
+    if (p.m == null) continue;
+    const xx = W - (now - p.t) / 8000 * W * 0.9 - W * 0.05;
+    g.fillStyle = col[p.k]; g.beginPath(); g.arc(xx, Math.max(4, Math.min(H - 4, y(p.m))), 3.6 * dpr, 0, 7); g.fill();
+  }
+}
+$('frStart').onclick = () => { if (FREE.on) stopFree(); else startFree(); };
+$('frBack').onclick = () => { stopFree(); showList(); };
+$('freeAny').onclick = () => openFree(null);
 
 /* boucle d'affichage et de mesure */
 function loop() {
