@@ -67,6 +67,8 @@ textarea{width:100%;min-height:170px;padding:11px;border-radius:10px;border:1px 
 .lvl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);margin-top:6px}
 .lvlbar{flex:1;height:6px;border-radius:3px;background:#262938;overflow:hidden}
 .lvlbar i{display:block;height:100%;width:0;background:var(--mut);transition:width .05s}
+.tlabel{font-weight:700;font-size:14px;margin-top:10px;color:var(--p1)}.tlabel.p2{color:var(--p2)}
+.warnbox{background:#4d3d1a;color:#ffe0a3;border-radius:10px;padding:10px;font-size:14px;margin-top:10px}
 .phase{text-align:center;font-weight:800;font-size:22px;padding:8px;border-radius:10px;background:#262938}
 .singer{text-align:center;font-weight:800;font-size:15px;padding:6px;border-radius:8px;margin-bottom:8px}
 .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
@@ -226,7 +228,8 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 
       <div id="setup">
         <label class="f">Mode</label>
-        <div class="chips"><button class="chip on" id="modeSolo">Solo</button><button class="chip" id="modeDuo">Duo</button></div>
+        <div class="chips"><button class="chip on" id="modeSolo">Solo</button><button class="chip" id="modeDuo">Duo alterné</button><button class="chip" id="modeHarm">Duo harmonie</button></div>
+        <div class="mut" id="modeHelp" style="margin-top:6px"></div>
         <div id="soloWho">
           <label class="f">Qui chante ?</label>
           <div class="chips"><button class="chip on" id="plWho1">Chanteur 1</button><button class="chip p2" id="plWho2">Chanteur 2</button></div>
@@ -236,7 +239,11 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 
       <div class="singer" id="singer" hidden></div>
       <canvas id="roll" width="1000" height="600"></canvas>
+      <div class="warnbox" id="plWarn" hidden></div>
+      <div class="tlabel" id="tLab1" hidden></div>
       <div class="tuner" id="tunerP"></div>
+      <div class="tlabel p2" id="tLab2" hidden></div>
+      <div class="tuner" id="tunerP2" hidden></div>
       <div class="lvl"><span>Micro</span><div class="lvlbar"><i id="lvlP"></i></div></div>
 
       <div class="ctrl">
@@ -619,6 +626,13 @@ class Scorer {
     if (Math.abs(best) <= 50) p.hit++;
     return { i, c: best };
   }
+  addCents(notes, t, c) {
+    const i = noteAt(notes, t); if (i < 0) return null;
+    const p = this.ph[notes[i].ph || 0]; p.f++;
+    if (c == null) return { i, c: null };
+    p.sung++; if (Math.abs(c) <= 50) p.hit++;
+    return { i, c };
+  }
   phraseScore(k) { const p = this.ph[k]; return p.f ? Math.round(100 * p.hit / p.f) : null; }
   total(filter = () => true) {
     let f = 0, hit = 0, sung = 0;
@@ -730,6 +744,68 @@ function recommend(lo, hi, list = REAL) {
   }
   return out.sort((x, y) => x.score - y.score);
 }
+/* ---------- Duo en harmonie ---------- */
+/* 2e voix : pour chaque note de la mélodie, une note de l'accord en dessous (tierce de préférence, sinon sixte) */
+function harmonyPart(notes, chords) {
+  return notes.map(n => {
+    const c = chords.find(c => n.t >= c.t - 1e-6 && n.t < c.t + c.d) || chords[chords.length - 1];
+    // préférence : tierce dessous (3-4 demi-tons), puis sixte (8-9), puis quarte/quinte (5-7)
+    const rank = iv => iv === 3 || iv === 4 ? 0 : iv === 8 || iv === 9 ? 1 : iv === 5 || iv === 7 ? 2 : 9;
+    let best = null;
+    for (const tone of c.tones) for (let o = -60; o <= 120; o += 12) {
+      const m = tone + o, iv = n.m - m;
+      if (iv >= 3 && iv <= 9 && (best == null || rank(iv) < rank(n.m - best))) best = m;
+    }
+    return { ...n, m: best == null ? n.m - 4 : best };
+  });
+}
+/* FFT (radix 2) → amplitude, fenêtre de Hann */
+function fftMag(x) {
+  const N = x.length, re = new Float64Array(N), im = new Float64Array(N);
+  for (let i = 0; i < N; i++) re[i] = x[i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+  for (let i = 1, j = 0; i < N; i++) { let b = N >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; } }
+  for (let len = 2; len <= N; len <<= 1) {
+    const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < N; i += len) { let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k], vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      } }
+  }
+  const mag = new Float32Array(N / 2); for (let i = 0; i < N / 2; i++) mag[i] = Math.hypot(re[i], im[i]);
+  return mag;
+}
+/* écart (cents) d'une voix dont on connaît la note visée : on cherche ses harmoniques près des fréquences attendues,
+   en ignorant celles qui tombent sur une harmonique de l'autre voix */
+function guidedCents(mag, sr, N, fT, others = [], win = 70) {
+  const bin = sr / N, vals = [];
+  let noise = 0; for (let i = 2; i < mag.length; i++) noise += mag[i]; noise /= mag.length;
+  for (let k = 1; k <= 8; k++) {
+    const fk = k * fT; if (fk > 4000) break;
+    if (others.some(fo => { for (let j = 1; j <= 10; j++) if (Math.abs(1200 * Math.log2(fk / (j * fo))) < 2 * win) return true; return false; })) continue;
+    const lo = Math.max(2, Math.floor(fk * Math.pow(2, -win / 1200) / bin)), hi = Math.min(mag.length - 2, Math.ceil(fk * Math.pow(2, win / 1200) / bin));
+    let bi = lo; for (let i = lo; i <= hi; i++) if (mag[i] > mag[bi]) bi = i;
+    if (bi === lo || bi === hi || mag[bi] < noise * 6) continue;
+    const a = mag[bi - 1], b = mag[bi], c = mag[bi + 1], den = a - 2 * b + c, d = den < 0 ? 0.5 * (a - c) / den : 0;
+    vals.push({ c: 1200 * Math.log2((bi + d) * bin / fk), w: b });
+  }
+  if (!vals.length) return null;
+  vals.sort((p, q) => p.c - q.c);
+  const tw = vals.reduce((s, v) => s + v.w, 0); let acc = 0;
+  for (const v of vals) { acc += v.w; if (acc >= tw / 2) return { c: v.c, w: tw, n: vals.length }; }
+  return null;
+}
+/* lissage : médiane des 5 dernières mesures (supprime les sauts isolés de quinte ou d'octave) */
+class PitchSmoother {
+  constructor(n = 5, maxAge = 250, fold = 12) { this.n = n; this.maxAge = maxAge; this.fold = fold; this.h = []; }
+  push(m, t) {
+    if (m == null) { this.h = this.h.filter(p => t - p.t <= this.maxAge / 2); return null; }
+    this.h.push({ m, t }); this.h = this.h.filter(p => t - p.t <= this.maxAge).slice(-this.n);
+    // chaque mesure est ramenée à l'octave de la dernière (une erreur d'octave n'est pas une fausse note)
+    const f = this.fold, s = this.h.map(p => f ? p.m + f * Math.round((m - p.m) / f) : p.m).sort((a, b) => a - b); return s[s.length >> 1];
+  }
+}
 /* ---------- Seuil micro adaptatif : suit le bruit de fond de la pièce ---------- */
 class VoiceGate {
   /* plancher de bruit : descend vite, remonte lentement (une voix tenue ne le fait pas monter) */
@@ -768,7 +844,7 @@ class Stair {
   }
   result() { return this.ok.length ? [Math.min(...this.ok), Math.max(...this.ok)] : null; }
 }
-if (typeof module !== 'undefined') module.exports = { genWarmup, octaveByPhrase, zoneCost, REAL, recommend, noteToMidi, VoiceGate, Stair, yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
+if (typeof module !== 'undefined') module.exports = { harmonyPart, fftMag, guidedCents, PitchSmoother, genWarmup, octaveByPhrase, zoneCost, REAL, recommend, noteToMidi, VoiceGate, Stair, yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
 </script>
 
 <script>
@@ -876,7 +952,7 @@ function makeTuner(el) {
     },
   };
 }
-const tunerT = makeTuner($('tunerT')), tunerP = makeTuner($('tunerP'));
+const tunerT = makeTuner($('tunerT')), tunerP = makeTuner($('tunerP')), tunerP2 = makeTuner($('tunerP2'));
 function setLevel(id, rms, on) { const el = $(id); el.style.width = Math.min(100, Math.sqrt(rms) * 330) + '%'; el.style.background = on ? 'var(--acc)' : 'var(--mut)'; }
 
 function defaultStart() { return sex === 'f' ? 60 : 50; }
@@ -1227,8 +1303,16 @@ const P = {
   },
   zones() {
     if (this.mode === 'duo') return [zoneOf(1), zoneOf(2)].filter(Boolean);
+    if (this.mode === 'harm') { const z = zoneOf(this.hiSinger()); return z ? [z] : []; }
     const z = zoneOf(this.singer); return z ? [z] : [];
   },
+  /* duo harmonie : la voix la plus aiguë chante la mélodie, l'autre la 2e voix */
+  hiSinger() {
+    const a = zoneOf(1), b = zoneOf(2);
+    if (a && b) return (b[0] + b[1]) > (a[0] + a[1]) ? 2 : 1;
+    return 1;
+  },
+  loSinger() { return this.hiSinger() === 1 ? 2 : 1; },
   build() {
     if (this.def) {
       const duo = this.mode === 'duo', z1 = duo ? (zoneOf(1) || zoneOf(2)) : zoneOf(this.singer);
@@ -1248,6 +1332,15 @@ const P = {
         $('trNote').textContent = 'Transposée pour ta voix. − / + : un demi-ton plus bas ou plus haut.';
       }
       if (duo) octaveByPhrase(b.notes, k => zoneOf(this.singerOf(k)));
+      this.notes2 = null;
+      if (this.mode === 'harm') {
+        // 2e voix générée sous la mélodie, puis placée à l'octave de l'autre chanteur
+        const h = harmonyPart(b.notes, b.chords), zl = zoneOf(this.loSinger());
+        if (zl) { const ms = h.map(n => n.m), lo2 = Math.min(...ms), hi2 = Math.max(...ms); let bo = 0, bc = 1e9;
+          for (const o of [0, -12, -24, 12]) { const c = zoneCost(lo2 + o, hi2 + o, zl, false) + Math.abs(o) * 0.001; if (c < bc) { bc = c; bo = o; } }
+          h.forEach(n => { n.m += bo; }); }
+        this.notes2 = h;
+      }
       Object.assign(this, { notes: b.notes, phrases: b.phrases, chords: b.chords, bd: b.bd, count: b.count, duration: b.duration, rate: 1 });
       $('plTitle').textContent = this.def.title;
     } else {
@@ -1265,17 +1358,19 @@ const P = {
       (this.mode === 'duo' && zs[1] ? ` <span class="pill ${fitLabel(lo, hi, zs[1]).k}">${fitLabel(lo, hi, zs[1]).t} pour ${pName(2)}</span>` : '');
     this.reset(); draw();
   },
-  reset() { this.offset = 0; this.scorer = new Scorer((this.phrases || []).length || 1); this.trail = []; this.last = null; $('results').hidden = true; this.view = null; tunerP.set(null); },
+  reset() { this.offset = 0; this.scorer = new Scorer((this.phrases || []).length || 1); this.scorer2 = new Scorer((this.phrases || []).length || 1); this.trail = []; this.trail2 = []; this.sm1 = new PitchSmoother(); this.sm2 = new PitchSmoother(5, 250, 0); this.smC = new PitchSmoother(5, 250, 0); this.last = null; $('results').hidden = true; this.view = null; this.view2 = null; tunerP.set(null); tunerP2.set(null); },
   pos() { return this.playing ? this.offset + (AC.currentTime - this.t0) * this.rate : this.offset; },
-  singerOf(ph) { return this.mode === 'duo' ? (ph % 2) + 1 : this.singer; },
+  singerOf(ph) { return this.mode === 'duo' ? (ph % 2) + 1 : this.mode === 'harm' ? this.hiSinger() : this.singer; },
   async play() {
     const ctx = audioCtx(); await ctx.resume();
     $('plErr').textContent = '';
     if (!micStream) {
       try {
         micStream = await getMic(true);
-        micAn = ctx.createAnalyser(); micAn.fftSize = 2048; micBuf = new Float32Array(2048);
+        micAn = ctx.createAnalyser(); micAn.fftSize = 4096; micBuf = new Float32Array(4096);
         ctx.createMediaStreamSource(micStream).connect(micAn);
+        if (bleed == null) { $('plWarn').hidden = false; $('plWarn').textContent = 'Test du casque…'; bleed = await bleedTest(); }
+        showBleed();
       } catch (e) { $('plErr').textContent = 'Micro indisponible : la musique joue, mais sans curseur ni score.'; }
     }
     if (this.offset >= this.duration - 0.2) this.reset();
@@ -1310,7 +1405,23 @@ const P = {
     $('btnPlay').textContent = '▶ Démarrer';
   },
 };
-let micStream = null, micAn = null, micBuf = null, lastAn = 0, pGate = new VoiceGate();
+let micStream = null, micAn = null, micBuf = null, lastAn = 0, pGate = new VoiceGate(), bleed = null;
+/* test casque : un bip court ; si le micro l'entend fort, la musique du haut-parleur faussera le curseur */
+async function bleedTest() {
+  const ctx = AC, b = new Float32Array(micAn.fftSize), rms = () => { micAn.getFloatTimeDomainData(b); let e = 0; for (const v of b) e += v * v; return Math.sqrt(e / b.length); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  await wait(250); let base = 0; for (let i = 0; i < 4; i++) { base = Math.max(base, rms()); await wait(40); }
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 880; g.gain.value = 0.25;
+  o.connect(g); g.connect(ctx.destination); o.start(); await wait(150);
+  let during = 0; for (let i = 0; i < 5; i++) { during = Math.max(during, rms()); await wait(40); }
+  o.stop(); await wait(150);
+  return during > Math.max(0.004, base * 4);
+}
+function showBleed() {
+  const w = $('plWarn');
+  if (bleed) { w.hidden = false; w.innerHTML = "🎧 <b>Le micro entend ton haut-parleur.</b> Sans casque, il peut prendre la voix guide (« pile poil » alors que tu chantes faux) ou un accord (≈ ±500 ¢). Mets un casque ou des écouteurs, même filaires, puis relance."; }
+  else w.hidden = true;
+}
 
 /* synthé : voix guide « aah » + accords + basse + décompte */
 function scheduleSynth(p, when) {
@@ -1324,7 +1435,7 @@ function scheduleSynth(p, when) {
   vin.connect(f1); vin.connect(f2); f1.connect(vmix); f2.connect(vmix);
   const dry = ctx.createGain(); dry.gain.value = 0.25; vin.connect(dry); dry.connect(vmix);
   vmix.connect(p.gV);
-  for (const n of p.notes) {
+  for (const n of (p.notes2 ? p.notes.concat(p.notes2) : p.notes)) {
     if (n.t + n.d <= off) continue;
     const s = Math.max(n.t, off), t0 = at(s), t1 = at(n.t + n.d);
     const o = add(ctx.createOscillator()); o.type = 'sawtooth'; o.frequency.value = midiToFreq(n.m);
@@ -1408,7 +1519,8 @@ function freeLoop() {
     FREE.an.getFloatTimeDomainData(FREE.buf);
     const r = yin(FREE.buf, AC.sampleRate), on = FREE.gate.push(r.rms);
     setLevel('lvlF', r.rms, on);
-    const m = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
+    FREE.sm = FREE.sm || new PitchSmoother();
+    const m = FREE.sm.push((on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null, now);
     if (m != null) {
       const n = Math.round(m), c = (m - n) * 100;
       $('frNote').textContent = fullName(n); tunerF.set(c);
@@ -1454,21 +1566,41 @@ function loop() {
   if (micAn && now - lastAn > 30) {
     lastAn = now;
     micAn.getFloatTimeDomainData(micBuf);
-    const r = yin(micBuf, AC.sampleRate), on = pGate.push(r.rms);
+    const y = micBuf.subarray(micBuf.length - 2048);
+    const r = yin(y, AC.sampleRate), on = pGate.push(r.rms);
     setLevel('lvlP', r.rms, on);
-    const sung = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
     // latence : sortie (ce que tu entends) + entrée (micro et fenêtre d'analyse)
     const lat = (AC.outputLatency || 0) + (AC.baseLatency || 0) + 0.06;
     const t = P.pos() - lat * P.rate;
-    const res = P.scorer.add(P.notes, t, sung);
-    // curseur : écart à la note la plus proche dans le temps (même entre deux notes)
-    let near = res ? res.i : -1;
-    if (near < 0) { let bd = 0.5; P.notes.forEach((n, k) => { const d = t < n.t ? n.t - t : t - (n.t + n.d); if (d >= 0 && d < bd) { bd = d; near = k; } }); }
-    const c = (sung != null && near >= 0) ? (res && res.c != null ? res.c : foldCents(sung, P.notes[near].m)) : null;
-    if (sung != null) P.trail.push({ t, m: near >= 0 ? P.notes[near].m + c / 100 : sung, k: c != null ? judge(c) : 'none' });
-    else P.trail.push({ t, m: null });
+    if (P.notes2) {
+      // duo harmonie : chaque voix est cherchée autour de sa propre note
+      const i = noteAt(P.notes, t), cs = [null, null];
+      if (on && i >= 0) {
+        const mag = fftMag(micBuf), f1 = midiToFreq(P.notes[i].m), f2 = midiToFreq(P.notes2[i].m);
+        const g1 = guidedCents(mag, AC.sampleRate, micBuf.length, f1, [f2]), g2 = guidedCents(mag, AC.sampleRate, micBuf.length, f2, [f1]);
+        cs[0] = g1 ? P.smC.push(g1.c, now) : P.smC.push(null, now);
+        cs[1] = g2 ? P.sm2.push(g2.c, now) : P.sm2.push(null, now);
+      }
+      P.scorer.addCents(P.notes, t, cs[0]); P.scorer2.addCents(P.notes2, t, cs[1]);
+      if (i >= 0) {
+        P.trail.push({ t, m: cs[0] != null ? P.notes[i].m + cs[0] / 100 : null, k: cs[0] != null ? judge(cs[0]) : 'none' });
+        P.trail2.push({ t, m: cs[1] != null ? P.notes2[i].m + cs[1] / 100 : null, k: cs[1] != null ? judge(cs[1]) : 'none' });
+      }
+      tunerP.set(cs[0]); tunerP2.set(cs[1]);
+    } else {
+      const raw = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
+      const sung = P.sm1.push(raw, now);                                  // médiane : ignore les sauts isolés
+      const res = P.scorer.add(P.notes, t, sung);
+      // curseur : écart à la note la plus proche dans le temps (même entre deux notes)
+      let near = res ? res.i : -1;
+      if (near < 0) { let bd = 0.5; P.notes.forEach((n, k) => { const d = t < n.t ? n.t - t : t - (n.t + n.d); if (d >= 0 && d < bd) { bd = d; near = k; } }); }
+      const c = (sung != null && near >= 0) ? (res && res.c != null ? res.c : foldCents(sung, P.notes[near].m)) : null;
+      if (sung != null) P.trail.push({ t, m: near >= 0 ? P.notes[near].m + c / 100 : sung, k: c != null ? judge(c) : 'none' });
+      else P.trail.push({ t, m: null });
+      tunerP.set(c);
+    }
     if (P.trail.length > 600) P.trail.splice(0, 100);
-    tunerP.set(c);
+    if (P.trail2.length > 600) P.trail2.splice(0, 100);
   }
   const t = P.pos();
   const i = noteAt(P.notes, t), ph = i >= 0 ? P.notes[i].ph : nextPhrase(t);
@@ -1486,47 +1618,53 @@ function showSinger(ph, t) {
   el.textContent = (P.mode === 'duo' ? 'À toi : ' : '') + pName(s) + ` · phrase ${ph + 1}/${P.phrases.length}`;
   el.style.background = s === 1 ? '#1f4d3f' : '#3a2f5c'; el.style.color = 'var(--txt)';
 }
-/* rouleau de notes */
+/* rouleau de notes (en duo harmonie : 2 bandes, une par voix, chacune zoomée sur sa note) */
 function draw() {
   const cv = $('roll'); if (!cv || $('playView').hidden || !P.notes) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1), cw = cv.clientWidth || 360;
-  const W = Math.round(cw * dpr), H = Math.round(cw * 0.62 * dpr);
+  const W = Math.round(cw * dpr), H = Math.round(cw * (P.notes2 ? 0.9 : 0.62) * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d'), t = P.pos();
-  // zoom : 9 demi-tons visibles, centrés en douceur sur la note en cours ou la prochaine
-  let ci = noteAt(P.notes, t); if (ci < 0) ci = P.notes.findIndex(n => n.t > t); if (ci < 0) ci = P.notes.length - 1;
-  const goal = P.notes[ci].m; P.view = P.view == null ? goal : P.view + (goal - P.view) * 0.08;
-  const span = 9, lo = P.view - span / 2, hi = P.view + span / 2;
-  const rowH = H / span, y = m => H - (m - lo) * rowH;
-  const nowX = W * 0.28, pps = W / 7, x = tt => nowX + (tt - t) * pps;
   g.clearRect(0, 0, W, H);
-  // lignes de notes
-  g.font = `${Math.round(11 * dpr)}px system-ui`; g.textBaseline = 'middle';
-  g.font = `${Math.round(12 * dpr)}px system-ui`;
-  for (let m = Math.floor(lo); m <= Math.ceil(hi); m++) {
+  if (P.notes2) {
+    const h2 = Math.floor(H / 2);
+    lane(g, 0, W, h2, dpr, t, P.notes, P.trail, 'view', () => ['#7ff0c8', '#2f8f70'], pName(P.hiSinger()));
+    lane(g, h2, W, H - h2, dpr, t, P.notes2, P.trail2, 'view2', () => ['#d4c4ff', '#6b55b5'], pName(P.loSinger()));
+    g.fillStyle = '#12131a'; g.fillRect(0, h2 - dpr, W, 2 * dpr);
+  } else {
+    lane(g, 0, W, H, dpr, t, P.notes, P.trail, 'view', n => P.singerOf(n.ph || 0) === 1 ? ['#7ff0c8', '#2f8f70'] : ['#d4c4ff', '#6b55b5'], null);
+  }
+  const nowX = W * 0.28; g.fillStyle = '#eceef5'; g.fillRect(nowX - dpr, 0, 2 * dpr, H);   // ligne « maintenant »
+}
+function lane(g, top, W, H, dpr, t, notes, trail, vk, colors, label) {
+  // zoom : 9 demi-tons (7 en harmonie), centrés en douceur sur la note en cours ou la prochaine
+  let ci = noteAt(notes, t); if (ci < 0) ci = notes.findIndex(n => n.t > t); if (ci < 0) ci = notes.length - 1;
+  const goal = notes[ci].m; P[vk] = P[vk] == null ? goal : P[vk] + (goal - P[vk]) * 0.08;
+  const span = label ? 7 : 9, lo = P[vk] - span / 2, rowH = H / span, y = m => top + H - (m - lo) * rowH;
+  const nowX = W * 0.28, pps = W / 7, x = tt => nowX + (tt - t) * pps;
+  g.save(); g.beginPath(); g.rect(0, top, W, H); g.clip();
+  g.textBaseline = 'middle'; g.font = `${Math.round(12 * dpr)}px system-ui`;
+  for (let m = Math.floor(lo); m <= Math.ceil(lo + span); m++) {
     const black = [1, 3, 6, 8, 10].includes(pc(m));
     g.fillStyle = black ? '#14161e' : '#1a1c26'; g.fillRect(0, y(m) - rowH / 2, W, rowH);
     g.fillStyle = '#262938'; g.fillRect(0, y(m) - rowH / 2, W, 1);
     g.fillStyle = '#7a8099'; g.fillText(frName(m), 4 * dpr, y(m));
   }
-  // notes cibles
-  const curI = noteAt(P.notes, t);
-  P.notes.forEach((n, i) => {
+  const curI = noteAt(notes, t);
+  notes.forEach((n, i) => {
     const x0 = x(n.t), x1 = x(n.t + n.d); if (x1 < 0 || x0 > W) return;
-    const s = P.singerOf(n.ph || 0);
-    g.fillStyle = s === 1 ? (i === curI ? '#7ff0c8' : '#2f8f70') : (i === curI ? '#d4c4ff' : '#6b55b5');
-    const r = Math.min(rowH * 0.4, 6 * dpr), yy = y(n.m) - rowH * 0.38, h = rowH * 0.76;
-    g.beginPath(); g.roundRect ? g.roundRect(x0, yy, Math.max(2, x1 - x0 - 2 * dpr), h, r) : g.rect(x0, yy, Math.max(2, x1 - x0 - 2 * dpr), h); g.fill();
+    const [on, off] = colors(n); g.fillStyle = i === curI ? on : off;
+    const r = Math.min(rowH * 0.4, 6 * dpr), yy = y(n.m) - rowH * 0.38, h = rowH * 0.76, w = Math.max(2, x1 - x0 - 2 * dpr);
+    g.beginPath(); g.roundRect ? g.roundRect(x0, yy, w, h, r) : g.rect(x0, yy, w, h); g.fill();
   });
-  // trace de ta voix
   const col = { ok: '#5ad1a8', near: '#f2b84b', off: '#ef6f6c', none: '#9aa0b4' };
-  for (const p of P.trail) {
+  for (const p of trail) {
     if (p.m == null) continue;
     const xx = x(p.t); if (xx < 0 || xx > nowX + 2) continue;
-    g.fillStyle = col[p.k]; g.beginPath(); g.arc(xx, Math.max(4, Math.min(H - 4, y(p.m))), 3.6 * dpr, 0, 7); g.fill();
+    g.fillStyle = col[p.k]; g.beginPath(); g.arc(xx, Math.max(top + 4, Math.min(top + H - 4, y(p.m))), 3.6 * dpr, 0, 7); g.fill();
   }
-  // ligne « maintenant »
-  g.fillStyle = '#eceef5'; g.fillRect(nowX - dpr, 0, 2 * dpr, H);
+  if (label) { g.font = `bold ${Math.round(13 * dpr)}px system-ui`; g.textAlign = 'right'; g.fillStyle = colors({})[0]; g.fillText(label, W - 6 * dpr, top + 12 * dpr); g.textAlign = 'left'; }
+  g.restore();
 }
 
 function finish() {
@@ -1538,7 +1676,13 @@ function finish() {
     return `<i title="Phrase ${k + 1} : ${v ?? '–'} %" style="height:${Math.max(4, v || 0)}%;background:${c};${P.mode === 'duo' ? 'border-bottom:3px solid ' + (s === 1 ? 'var(--p1)' : 'var(--p2)') : ''}"></i>`;
   }).join('');
   const id = P.def ? P.def.id : P.song.id;
-  if (P.mode === 'duo') {
+  if (P.mode === 'harm') {
+    const hi = P.hiSinger(), lo = P.loSinger(), a = sc.total(), b = P.scorer2.total();
+    const w = a.score === b.score ? 'Égalité !' : (a.score > b.score ? pName(hi) : pName(lo)) + ' gagne !';
+    out.push(`<div class="score">${w}</div><div class="row" style="margin-top:12px;text-align:center">
+      <div><div class="mut">${esc(pName(hi))} · mélodie</div><div class="res" style="color:var(--p1)">${a.score} %</div><div class="mut">justesse ${a.justesse} % · présence ${a.presence} %</div></div>
+      <div><div class="mut">${esc(pName(lo))} · 2e voix</div><div class="res" style="color:var(--p2)">${b.score} %</div><div class="mut">justesse ${b.justesse} % · présence ${b.presence} %</div></div></div>`);
+  } else if (P.mode === 'duo') {
     const a = sc.total(k => k % 2 === 0), b = sc.total(k => k % 2 === 1);
     const w = a.score === b.score ? 'Égalité !' : (a.score > b.score ? pName(1) : pName(2)) + ' gagne !';
     out.push(`<div class="score">${w}</div><div class="row" style="margin-top:12px;text-align:center">
@@ -1558,20 +1702,32 @@ function finish() {
 
 async function openSong(id) {
   $('listView').hidden = true; $('playView').hidden = false; $('setup').hidden = false; $('singer').hidden = true; $('plErr').textContent = '';
-  P.singer = who; setMode(P.mode, true);
+  P.singer = who;
+  const def = SONGS.find(s => s.id === id);
+  if (P.mode === 'harm' && !(def && !def.gen)) P.mode = 'solo';
+  setMode(P.mode, true);
   await P.open(id);
+  setMode(P.mode, true);
   window.scrollTo(0, 0);
 }
 function setMode(m, quiet) {
   P.mode = m;
-  $('modeSolo').classList.toggle('on', m === 'solo'); $('modeDuo').classList.toggle('on', m === 'duo');
-  $('soloWho').hidden = m === 'duo';
+  const canHarm = !!(P.def && !P.def.gen);
+  if (m === 'harm' && !canHarm && P.def !== null) m = P.mode = 'solo';
+  $('modeHarm').hidden = !canHarm && (P.def !== null || P.song !== null);
+  $('modeSolo').classList.toggle('on', m === 'solo'); $('modeDuo').classList.toggle('on', m === 'duo'); $('modeHarm').classList.toggle('on', m === 'harm');
+  $('soloWho').hidden = m !== 'solo';
+  $('modeHelp').textContent = m === 'duo' ? 'Chacun sa phrase, à tour de rôle.' : m === 'harm' ? "Vous chantez en même temps : la voix la plus aiguë prend la mélodie (vert), l'autre la 2e voix (violet). Un curseur chacun." : '';
+  const harm = m === 'harm';
+  $('tLab1').hidden = $('tLab2').hidden = $('tunerP2').hidden = !harm;
+  if (harm) { $('tLab1').textContent = pName(P.hiSinger()) + ' · mélodie'; $('tLab2').textContent = pName(P.loSinger()) + ' · 2e voix'; }
   $('plWho1').textContent = pName(1); $('plWho2').textContent = pName(2);
   $('plWho1').classList.toggle('on', P.singer === 1); $('plWho2').classList.toggle('on', P.singer === 2);
   if (!quiet) { P.T = null; P.build(); }
 }
 $('modeSolo').onclick = () => setMode('solo');
 $('modeDuo').onclick = () => setMode('duo');
+$('modeHarm').onclick = () => setMode('harm');
 $('plWho1').onclick = () => { P.singer = 1; setMode(P.mode); };
 $('plWho2').onclick = () => { P.singer = 2; setMode(P.mode); };
 $('btnBack').onclick = () => { P.stop(); showList(); };
