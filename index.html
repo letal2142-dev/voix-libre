@@ -52,11 +52,22 @@ textarea{width:100%;min-height:170px;padding:11px;border-radius:10px;border:1px 
 .song .s{font-size:13px;color:var(--mut)}
 .filebox{display:block;padding:12px;border:1px dashed var(--line);border-radius:10px;margin-top:8px;cursor:pointer;font-size:14px;color:var(--mut)}
 .filebox b{color:var(--txt)}
-.gauge{position:relative;height:30px;margin:10px 0 2px;border-radius:8px;background:linear-gradient(90deg,#4d2222 0%,#4d3d1a 25%,#1f4d3f 37.5%,#1f4d3f 62.5%,#4d3d1a 75%,#4d2222 100%)}
-.gauge::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:#eceef580}
-.gauge i{position:absolute;top:-4px;bottom:-4px;width:6px;margin-left:-3px;border-radius:3px;background:var(--txt);left:50%;transition:left .06s;opacity:.25}
-.gl{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)}
-.verdict{text-align:center;font-weight:800;font-size:20px;min-height:28px}
+/* accordeur zoomé : ±50 cents sur toute la largeur */
+.tuner{margin:10px 0 4px}
+.tn-head{display:flex;align-items:baseline;justify-content:center;gap:10px;min-height:40px}
+.tn-num{font:800 34px/1 system-ui;font-variant-numeric:tabular-nums}
+.tn-word{font-weight:700;font-size:16px}
+.tn-scale{position:relative;height:46px;border-radius:10px;overflow:hidden;background:#2a1c1c;margin-top:6px}
+.tn-scale .z{position:absolute;top:0;bottom:0}
+.tn-scale .t{position:absolute;bottom:0;width:1px;background:#eceef566}
+.tn-scale .t.c{width:2px;height:100%;background:#eceef5cc;margin-left:-1px}
+.tn-ndl{position:absolute;top:3px;bottom:3px;width:10px;margin-left:-5px;border-radius:5px;background:var(--txt);box-shadow:0 0 0 2px #12131a;left:50%;transition:left .08s linear,opacity .3s}
+.tn-arrow{position:absolute;top:50%;transform:translateY(-50%);font:800 22px system-ui;color:var(--bad);display:none}
+.tn-lab{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:3px;font-variant-numeric:tabular-nums}
+.lvl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);margin-top:6px}
+.lvlbar{flex:1;height:6px;border-radius:3px;background:#262938;overflow:hidden}
+.lvlbar i{display:block;height:100%;width:0;background:var(--mut);transition:width .05s}
+.phase{text-align:center;font-weight:800;font-size:22px;padding:8px;border-radius:10px;background:#262938}
 .singer{text-align:center;font-weight:800;font-size:15px;padding:6px;border-radius:8px;margin-bottom:8px}
 .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .ctrl .btn{flex:1;min-width:120px;margin-top:0}
@@ -84,9 +95,15 @@ input[type=range]{width:100%;accent-color:var(--acc)}
   </div>
 
   <div class="card" id="intro">
-    <h2>Test de tessiture</h2>
-    <div class="mut">Mets-toi au calme, à 30 cm du micro. Chante « aaa » et <b>tiens chaque note une seconde</b> : seules les notes tenues sont comptées.</div>
-    <button class="btn" id="btnStart">Démarrer le micro</button>
+    <h2>Test de tessiture guidé</h2>
+    <div class="mut">L'appli joue une note : répète-la sur « aaa » et tiens-la. Dès qu'elle est juste, la note suivante descend d'un demi-ton, comme un escalier. Quand tu n'y arrives plus, on remonte de la même façon vers l'aigu.</div>
+    <label class="f">Ta voix</label>
+    <div class="chips"><button class="chip on" id="sexM">Voix d'homme</button><button class="chip" id="sexF">Voix de femme</button></div>
+    <div class="row" style="align-items:center;margin-top:10px">
+      <div class="mut" style="flex:2">Note de départ : <b id="startName">–</b></div>
+      <div class="tr" style="flex:0 0 auto"><button class="btn alt small" id="stDown">−</button><button class="btn alt small" id="stPlay">🔊</button><button class="btn alt small" id="stUp">+</button></div>
+    </div>
+    <button class="btn" id="btnStart">Démarrer le test</button>
     <div class="warn" id="micErr"></div>
   </div>
 
@@ -99,18 +116,20 @@ input[type=range]{width:100%;accent-color:var(--acc)}
   </div>
 
   <div class="card" id="live" hidden>
-    <h2 id="phaseTitle">Étape 1 · Vers le grave</h2>
-    <div class="mut" id="phaseTxt"></div>
+    <div class="phase" id="phaseTitle">↓ Vers le grave</div>
+    <div class="sub" id="stStatus">Écoute…</div>
     <div class="big" id="note">–</div>
-    <div class="sub" id="freq">Chante…</div>
+    <div class="tuner" id="tunerT"></div>
     <div class="meter"><i id="hold"></i></div>
     <div class="sub" style="font-size:12px">note tenue</div>
-    <canvas id="trace" width="1000" height="560"></canvas>
-    <div class="stats"><div>Plus grave<b id="sLow">–</b></div><div style="text-align:right">Plus aiguë<b id="sHigh">–</b></div></div>
+    <div class="lvl"><span>Micro</span><div class="lvlbar"><i id="lvlT"></i></div></div>
+    <canvas id="stairs" width="1000" height="420"></canvas>
+    <div class="stats"><div>Plus grave réussie<b id="sLow">–</b></div><div style="text-align:right">Plus aiguë réussie<b id="sHigh">–</b></div></div>
     <div class="row">
-      <button class="btn alt" id="btnReset">Recommencer</button>
-      <button class="btn" id="btnNext">Passer à l'aigu</button>
+      <button class="btn alt" id="btnReplay">🔊 Réécouter</button>
+      <button class="btn" id="btnGiveUp">Je n'y arrive plus</button>
     </div>
+    <button class="btn alt" id="btnStopTest">Arrêter le test</button>
   </div>
 
   <div class="card" id="result" hidden>
@@ -149,6 +168,15 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 <!-- ================= 3 · CHANTER ================= -->
 <section id="secChant">
   <div id="listView">
+    <div class="card">
+      <h2>Chansons connues pour ta voix</h2>
+      <div class="chips"><button class="chip on" id="rec1">Chanteur 1</button><button class="chip p2" id="rec2">Chanteur 2</button></div>
+      <div class="mut" id="recInfo" style="margin-top:8px"></div>
+      <div id="recList"></div>
+      <button class="btn alt" id="recMore" hidden>Voir 10 de plus</button>
+      <div class="mut" style="margin-top:8px;font-size:12px">Tessitures : classements par voix de Singing Carrots. « Karaoké » ouvre une recherche YouTube de la version sans voix.</div>
+    </div>
+
     <div class="card">
       <h2>Chansons</h2>
       <div class="mut" id="fitFor"></div>
@@ -189,9 +217,8 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 
       <div class="singer" id="singer" hidden></div>
       <canvas id="roll" width="1000" height="600"></canvas>
-      <div class="gauge"><i id="needle"></i></div>
-      <div class="gl"><span>trop bas</span><span>juste</span><span>trop haut</span></div>
-      <div class="verdict" id="verdict"></div>
+      <div class="tuner" id="tunerP"></div>
+      <div class="lvl"><span>Micro</span><div class="lvlbar"><i id="lvlP"></i></div></div>
 
       <div class="ctrl">
         <button class="btn" id="btnPlay">▶ Démarrer</button>
@@ -557,7 +584,137 @@ function fitLabel(lo, hi, zone) {
   if (r.under <= 2 && r.over <= 2) return { k: 'warn', t: (r.over > 0 ? 'Un peu haut' : 'Un peu bas') + oct };
   return { k: 'bad', t: (r.over > r.under ? 'Trop haut' : 'Trop bas') + oct };
 }
-if (typeof module !== 'undefined') module.exports = { yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
+/* ---------- Chansons connues : tessiture de la mélodie (source : Singing Carrots, classements par voix) ---------- */
+const REAL = [
+  "Joe Dassin|Les Champs-Élysées|B2|B3",
+  "Vianney|Les filles d'aujourd'hui|B2|B3",
+  "Michel Sardou|Je vole|A2|A3",
+  "Michel Sardou|Musica|D3|E4",
+  "Michel Sardou|Je viens du sud|F#3|G#4",
+  "Julien Doré|Mon Apache|D3|C4",
+  "Calogero|Le portrait|E3|A4",
+  "Maître Gims|Changer|D#3|G#4",
+  "Maître Gims|Zombie|D#3|B4",
+  "Charles Aznavour|La bohème|D3|B4",
+  "Joe Dassin|Taka Takata|D#3|A#4",
+  "Yves Montand|Le gamin de Paris|D3|E4",
+  "Sacha Distel|Le bateau blanc|B2|C#4",
+  "Claude Nougaro|Le paradis|A#2|A#3",
+  "Josh Groban|Petit Papa Noël|C3|D#4",
+  "Gibson Brothers|Cuba|B2|B3",
+  "Dario Moreno|Mambo Italiano|C#3|E4",
+  "Terry Jacks|Seasons in the Sun|D3|C4",
+  "Lionel Richie|Hello|E3|F4",
+  "Bob Marley|Three Little Birds|A3|A4",
+  "Imagine Dragons|Demons|D#3|A#4",
+  "Maroon 5|Sad|D3|G4",
+  "Kool & the Gang|Celebration|C3|G4",
+  "Frank Sinatra|Cheek to Cheek|A2|D4",
+  "Frank Sinatra|Luck Be a Lady|C3|D4",
+  "Kenny Rogers|Lucille|A2|A#3",
+  "Michael Bublé|The Christmas Song|A2|E4",
+  "Wings|Live and Let Die|D3|C5",
+  "John Farnham|You're the Voice|F3|C5",
+  "Peter Gabriel|Solsbury Hill|F#3|G#4",
+  "Sam Cooke|Bring It On Home to Me|G3|A4",
+  "Billy Joel|And So It Goes|A2|C4",
+  "Nat King Cole|Autumn Leaves|A2|C4",
+  "Curtis Mayfield|People Get Ready|A2|C4",
+  "Calvin Harris|Feel So Close|A2|B3",
+  "Robbie Williams|She's the One|F3|C5",
+  "Indila|Dernière danse|F3|D#5",
+  "Zaz|Champs-Élysées|A3|A4",
+  "Zaz|Paris sera toujours Paris|G3|A4",
+  "Zaz|Sous le ciel de Paris|F#3|B4",
+  "Louane|Avenir|A#3|D#5",
+  "Louane|Si t'étais là|F#3|A4",
+  "Angèle|Balance ton quoi|F3|G4",
+  "France Gall|Ella, elle l'a|G3|D5",
+  "Jain|Makeba|G3|F5",
+  "Jain|Come|G#3|B4",
+  "Cœur de pirate|Comme des enfants|G3|A#4",
+  "Édith Piaf|La vie en rose|F#3|B4",
+  "Édith Piaf|Milord|G#3|C5",
+  "Édith Piaf|Padam, padam|C4|C5",
+  "Édith Piaf|La foule|A3|E5",
+  "Édith Piaf|Sous le ciel de Paris|C4|F5",
+  "Jane Birkin|Je t'aime… moi non plus|G3|F4",
+  "Camille|Le festin|A#3|G5",
+  "Nina Simone|Ne me quitte pas|G#3|E5",
+  "Mireille Mathieu|Pariser Tango|C4|C5",
+  "Sheila|Fernando|C4|F5",
+  "Britney Spears|Toxic|G3|F5",
+  "Céline Dion|Because You Loved Me|G#3|D#5",
+  "Natasha Bedingfield|Unwritten|G3|C5",
+  "Amy Winehouse|You Know I'm No Good|A3|G4",
+  "Avril Lavigne|Girlfriend|A3|D5",
+  "Bonnie Tyler|Holding Out for a Hero|A3|A5",
+  "Bananarama|Venus|D4|B4",
+  "Eva Cassidy|Ain't No Sunshine|F3|D5",
+  "Halsey|Colors|G#3|G#4",
+  "Diana Krall|Cry Me a River|G3|A4",
+  "Lenka|The Show|A3|A4",
+  "Carole King|Will You Love Me Tomorrow|G3|A4"
+].map(l => { const [a, t, lo, hi] = l.split('|'); return { a, t, lo: noteToMidi(lo), hi: noteToMidi(hi) }; });
+function noteToMidi(s) {
+  const m = /^([A-G])([#b]?)(-?\d)$/.exec(s); if (!m) return null;
+  return 12 * (+m[3] + 1) + { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+}
+/* conseils : chansons dont la mélodie tient dans la voix, dans la tonalité d'origine, à l'octave, ou en transposant un peu */
+function recommend(lo, hi, list = REAL) {
+  const [cl, ch] = comfort(lo, hi), out = [];
+  for (const s of list) {
+    let best = null;
+    for (const oct of [0, -12, 12]) for (const tr of [0, -1, 1, -2, 2, -3, 3]) {
+      const a = s.lo + oct + tr, b = s.hi + oct + tr;
+      if (a < lo || b > hi) continue;                                    // hors de ce que tu atteins
+      const outC = Math.max(0, cl - a) + Math.max(0, b - ch);             // demi-tons hors zone confortable
+      const score = outC * 3 + Math.abs(tr) * 1.2 + (oct ? 1 : 0) + Math.abs((a + b) / 2 - (cl + ch) / 2) * 0.15;
+      if (!best || score < best.score) best = { ...s, oct, tr, outC, score };
+    }
+    if (best) out.push(best);
+  }
+  return out.sort((x, y) => x.score - y.score);
+}
+/* ---------- Seuil micro adaptatif : suit le bruit de fond de la pièce ---------- */
+class VoiceGate {
+  /* plancher de bruit : descend vite, remonte lentement (une voix tenue ne le fait pas monter) */
+  push(rms) {
+    if (this.floor == null) this.floor = rms;
+    this.floor = rms < this.floor ? this.floor * 0.5 + rms * 0.5 : this.floor * 1.0008;
+    this.thr = Math.max(0.0015, this.floor * 2.5);
+    return rms > this.thr;
+  }
+}
+/* ---------- Test de tessiture guidé : escalier de demi-tons ---------- */
+/* chaque marche : tenir la note cible (±tol cents) pendant holdMs ; sinon échec après timeoutMs */
+class Stair {
+  constructor(start, holdMs = 600, tol = 50, timeoutMs = 8000) {
+    Object.assign(this, { start, holdMs, tol, timeoutMs, dir: -1, target: start, ok: [], phase: 'down', done: false });
+  }
+  begin(t) { this.t0 = t; this.since = null; }
+  feed(m, t) {
+    const out = { cents: null, progress: 0, event: null };
+    if (this.done || this.t0 == null) return out;
+    if (m != null) {
+      out.cents = (m - this.target) * 100;
+      if (Math.abs(out.cents) <= this.tol) { if (this.since == null) this.since = t; } else this.since = null;
+    } else this.since = null;
+    if (this.since != null) out.progress = Math.min(1, (t - this.since) / this.holdMs);
+    if (out.progress >= 1) { this.ok.push(this.target); out.event = 'success'; this.next(true); }
+    else if (t - this.t0 > this.timeoutMs) { out.event = 'fail'; this.next(false); }
+    return out;
+  }
+  giveUp() { this.next(false); }
+  next(success) {
+    this.t0 = null; this.since = null;
+    if (success && this.target > 30 && this.target < 92) { this.target += this.dir; return; }
+    if (this.phase === 'down') { this.phase = 'up'; this.dir = 1; this.target = this.start + 1; return; }
+    this.done = true;
+  }
+  result() { return this.ok.length ? [Math.min(...this.ok), Math.max(...this.ok)] : null; }
+}
+if (typeof module !== 'undefined') module.exports = { REAL, recommend, noteToMidi, VoiceGate, Stair, yin, StableTracker, classifyVoice, comfort, targetRange, buildPrompt, analyzeChunk, melodyFrames, melodyNotes, splitPhrases, MEL, SONGS, songRel, bestTranspose, harmonize, buildSynth, foldCents, judge, noteAt, Scorer, fitLabel, TYPES, STYLES, freqToMidi, midiToFreq, enName, fullName };
 </script>
 
 <script>
@@ -615,25 +772,98 @@ $('who1').onclick = () => setWho(1);
 $('who2').onclick = () => setWho(2);
 $('whoName').oninput = e => { profiles[who].name = e.target.value.trim(); saveProfiles(); $('who' + who).textContent = pName(who); };
 
-let stream = null, analyser = null, buf = null, timer = null;
-const tracker = new StableTracker();
-let low = null, high = null, phase = 1, hist = [];
+let stream = null, analyser = null, buf = null, timer = null, gate = new VoiceGate();
+let stair = null, refUntil = 0, sex = LS.get('voixlibre.sex', 'm'), startNote = null, stLast = null;
 
 async function getMic(ec) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nomedia');
-  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: ec, noiseSuppression: false, autoGainControl: false } });
+  // gain automatique : capte une voix douce sans devoir chanter fort
+  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: ec, noiseSuppression: false, autoGainControl: true } });
 }
+/* lecture d'une note de référence (« aah » de synthèse) */
+function playRef(m, dur = 1.1) {
+  const ctx = audioCtx(), t0 = ctx.currentTime + 0.03;
+  const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = midiToFreq(m);
+  const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 750; f1.Q.value = 3;
+  const f2 = ctx.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.value = 2200;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.5, t0 + 0.04); g.gain.setValueAtTime(0.5, t0 + dur - 0.1); g.gain.linearRampToValueAtTime(0, t0 + dur);
+  const dry = ctx.createGain(); dry.gain.value = 0.15;
+  o.connect(f1); o.connect(dry); f1.connect(f2); dry.connect(f2); f2.connect(g); g.connect(ctx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+  return performance.now() + (dur + 0.25) * 1000;   // le micro est ignoré pendant la note jouée
+}
+/* ---- accordeur zoomé (partagé par le test et la pratique) ---- */
+function makeTuner(el) {
+  const zones = [[-50, -25, '#4d3d1a'], [-25, -10, '#1f4d3f'], [-10, 10, '#2f8f70'], [10, 25, '#1f4d3f'], [25, 50, '#4d3d1a']];
+  let html = '<div class="tn-head"><span class="tn-num">–</span><span class="tn-word"></span></div><div class="tn-scale">';
+  for (const [a, b, c] of zones) html += `<i class="z" style="left:${a + 50}%;width:${b - a}%;background:${c}"></i>`;
+  for (let c = -50; c <= 50; c += 5) html += `<i class="t${c === 0 ? ' c' : ''}" style="left:${c + 50}%;height:${c % 25 === 0 ? 60 : c % 10 === 0 ? 40 : 22}%"></i>`;
+  html += '<span class="tn-arrow" style="left:4px">◀</span><span class="tn-arrow" style="right:4px">▶</span><i class="tn-ndl"></i></div>';
+  html += '<div class="tn-lab"><span>−50 ¢ trop bas</span><span>pile</span><span>trop haut +50 ¢</span></div>';
+  el.innerHTML = html;
+  const q = s => el.querySelector(s), arrows = el.querySelectorAll('.tn-arrow');
+  let ema = null, lastT = 0;
+  return {
+    set(c) {
+      const now = performance.now();
+      if (c == null) { if (now - lastT > 400) { q('.tn-ndl').style.opacity = .2; q('.tn-num').textContent = '–'; q('.tn-word').textContent = ''; ema = null; arrows[0].style.display = arrows[1].style.display = 'none'; } return; }
+      ema = ema == null || Math.abs(c - ema) > 60 ? c : ema * 0.5 + c * 0.5; lastT = now;
+      const v = Math.round(ema), a = Math.abs(v);
+      const col = a <= 10 ? 'var(--acc)' : a <= 25 ? '#9be7c9' : a <= 50 ? 'var(--acc2)' : 'var(--bad)';
+      const nd = q('.tn-ndl'); nd.style.left = (50 + Math.max(-50, Math.min(50, v))) + '%'; nd.style.opacity = 1; nd.style.background = col;
+      q('.tn-num').textContent = (v > 0 ? '+' : v < 0 ? '−' : '±') + a + ' ¢'; q('.tn-num').style.color = col;
+      q('.tn-word').textContent = a <= 10 ? 'pile poil' : a <= 25 ? 'juste' : a <= 50 ? (v > 0 ? 'un peu haut' : 'un peu bas') : (v > 0 ? 'trop haut' : 'trop bas');
+      q('.tn-word').style.color = col;
+      arrows[0].style.display = v < -50 ? 'block' : 'none'; arrows[1].style.display = v > 50 ? 'block' : 'none';
+    },
+  };
+}
+const tunerT = makeTuner($('tunerT')), tunerP = makeTuner($('tunerP'));
+function setLevel(id, rms, on) { const el = $(id); el.style.width = Math.min(100, Math.sqrt(rms) * 330) + '%'; el.style.background = on ? 'var(--acc)' : 'var(--mut)'; }
+
+function defaultStart() { return sex === 'f' ? 60 : 50; }
+function showStart() {
+  if (startNote == null) startNote = defaultStart();
+  $('startName').textContent = fullName(startNote);
+  $('sexM').classList.toggle('on', sex === 'm'); $('sexF').classList.toggle('on', sex === 'f');
+}
+$('sexM').onclick = () => { sex = 'm'; LS.set('voixlibre.sex', sex); startNote = defaultStart(); showStart(); };
+$('sexF').onclick = () => { sex = 'f'; LS.set('voixlibre.sex', sex); startNote = defaultStart(); showStart(); };
+$('stDown').onclick = () => { startNote = Math.max(36, startNote - 1); showStart(); playRef(startNote); };
+$('stUp').onclick = () => { startNote = Math.min(84, startNote + 1); showStart(); playRef(startNote); };
+$('stPlay').onclick = () => playRef(startNote);
+
 async function startMic() {
   $('micErr').textContent = '';
   const ctx = audioCtx(); await ctx.resume();
-  try { stream = await getMic(false); }
+  try { stream = await getMic(true); }
   catch (e) { $('micErr').textContent = "Micro bloqué ici. Ouvre l'appli depuis son adresse https, ou utilise « Enregistrer » ci-dessous."; return; }
   analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
   ctx.createMediaStreamSource(stream).connect(analyser);
   buf = new Float32Array(analyser.fftSize);
-  low = high = null; hist = []; tracker.reset(); setPhase(1);
+  stair = new Stair(startNote); gate = new VoiceGate(); stLast = null;
   $('intro').hidden = true; $('recCard').hidden = true; $('result').hidden = true; $('live').hidden = false;
+  nextStep();
   timer = setInterval(tick, 40);
+}
+function nextStep() {
+  if (stair.done) return finishStair();
+  $('phaseTitle').textContent = stair.phase === 'down' ? '↓ Vers le grave' : '↑ Vers l\'aigu';
+  $('note').textContent = fullName(stair.target);
+  $('stStatus').textContent = 'Écoute la note…';
+  refUntil = playRef(stair.target);
+  stair.t0 = null;
+  drawStairs();
+}
+function finishStair() {
+  stopMic();
+  const r = stair.result();
+  if (!r || r[1] - r[0] < 3) {
+    $('live').hidden = true; $('intro').hidden = false; $('recCard').hidden = false;
+    $('micErr').textContent = "Pas assez de notes réussies. Change la note de départ (− / +) pour une note facile, rapproche-toi du micro et recommence.";
+    return;
+  }
+  saveRange(r[0], r[1]);
 }
 function stopMic() {
   clearInterval(timer); timer = null;
@@ -641,71 +871,59 @@ function stopMic() {
   stream = analyser = null;
 }
 function tick() {
-  if (!analyser) return;
+  if (!analyser || !stair) return;
   analyser.getFloatTimeDomainData(buf);
-  const r = yin(buf, AC.sampleRate), now = performance.now();
-  const m = (r.f > 0 && r.rms > 0.01 && r.clarity > 0.8) ? freqToMidi(r.f) : null;
-  const st = tracker.push(m, now);
-  hist.push({ t: now, m });
-  while (hist.length && now - hist[0].t > 6000) hist.shift();
-  if (st.note != null) {
-    if (low == null || st.note < low) low = st.note;
-    if (high == null || st.note > high) high = st.note;
-  }
+  const now = performance.now();
+  if (now < refUntil) { setLevel('lvlT', 0, false); return; }        // on n'écoute pas pendant la note jouée
+  if (stair.t0 == null) { stair.begin(now); $('stStatus').textContent = 'À toi : chante cette note et tiens-la'; }
+  const r = yin(buf, AC.sampleRate), on = gate.push(r.rms);
+  setLevel('lvlT', r.rms, on);
+  const m = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
+  const before = stair.phase, tgt = stair.target;
+  const st = stair.feed(m, now);
+  tunerT.set(st.cents == null ? null : Math.max(-200, Math.min(200, st.cents)));
   $('hold').style.width = (st.progress * 100) + '%';
-  $('hold').style.background = st.note != null ? 'var(--acc)' : 'var(--acc2)';
-  if (m != null) {
-    const n = Math.round(m), cents = Math.round((m - n) * 100);
-    $('note').textContent = fullName(n);
-    $('freq').textContent = Math.round(r.f) + ' Hz · ' + (cents >= 0 ? '+' : '') + cents + ' cents';
-  } else $('freq').textContent = 'Chante…';
-  $('sLow').textContent = low != null ? fullName(low) : '–';
-  $('sHigh').textContent = high != null ? fullName(high) : '–';
-  $('btnNext').disabled = phase === 1 ? low == null : (high == null || high - low < 3);
-  drawTrace(now);
+  $('hold').style.background = st.progress > 0 ? 'var(--acc)' : 'var(--acc2)';
+  const left = Math.max(0, Math.ceil((stair.timeoutMs - (now - (stair.t0 || now))) / 1000));
+  if (!st.event && stair.t0 != null) $('stStatus').textContent = m == null ? `À toi : chante ${frName(tgt)} (${left} s)` : (Math.abs(st.cents) <= 50 ? 'Tiens-la…' : (st.cents > 0 ? 'Plus bas' : 'Plus haut') + ` (${left} s)`);
+  if (st.event) {
+    stLast = { m: tgt, ok: st.event === 'success' };
+    $('stStatus').textContent = st.event === 'success' ? '✓ Réussi' : (before === 'down' ? 'Limite grave trouvée' : 'Limite aiguë trouvée');
+    updateStats();
+    refUntil = now + 600; setTimeout(() => { if (stair && stream) nextStep(); }, 500);
+  }
+  drawStairs(m);
 }
-function drawTrace(now) {
-  const cv = $('trace'), g = cv.getContext('2d'), W = cv.width, H = cv.height;
-  const mLo = 36, mHi = 86, y = m => H - (m - mLo) / (mHi - mLo) * H;
+function updateStats() {
+  const r = stair.result();
+  $('sLow').textContent = r ? fullName(r[0]) : '–'; $('sHigh').textContent = r ? fullName(r[1]) : '–';
+}
+/* escalier : marches réussies (vert), marche en cours (blanc), ta voix (jaune) */
+function drawStairs(sung) {
+  const cv = $('stairs'), g = cv.getContext('2d'), W = cv.width, H = cv.height;
   g.clearRect(0, 0, W, H);
-  g.font = 'bold 40px system-ui'; g.fillStyle = '#7a8099';
-  for (let m = 36; m <= 72; m += 12) {
-    g.strokeStyle = '#262938'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, y(m)); g.lineTo(W, y(m)); g.stroke();
-    g.fillText(enName(m), 10, y(m) - 8);
-  }
-  for (const v of [low, high]) if (v != null) {
-    g.strokeStyle = '#5ad1a8'; g.setLineDash([10, 8]); g.beginPath(); g.moveTo(0, y(v)); g.lineTo(W, y(v)); g.stroke(); g.setLineDash([]);
-  }
-  g.strokeStyle = '#f2b84b'; g.lineWidth = 5; g.beginPath(); let pen = false;
-  for (const p of hist) {
-    const x = W - (now - p.t) / 6000 * W;
-    if (p.m == null) { pen = false; continue; }
-    const yy = y(Math.max(mLo, Math.min(mHi, p.m)));
-    if (!pen) { g.moveTo(x, yy); pen = true; } else g.lineTo(x, yy);
-  }
-  g.stroke();
+  const ok = stair.ok, all = ok.concat([stair.target, stair.start]);
+  const lo = Math.min(...all) - 3, hi = Math.max(...all) + 3, y = m => H - (m - lo + 0.5) / (hi - lo + 1) * H, rh = H / (hi - lo + 1);
+  g.font = 'bold 26px system-ui'; g.textBaseline = 'middle';
+  for (let m = lo; m <= hi; m++) if (pc(m) === 0) { g.fillStyle = '#262938'; g.fillRect(0, y(m) - 1, W, 2); g.fillStyle = '#7a8099'; g.fillText(enName(m), 8, y(m) - 16); }
+  const steps = ok.concat(stair.done ? [] : [stair.target]), n = Math.max(8, steps.length + 1), w = W / n;
+  steps.forEach((m, i) => {
+    const cur = !stair.done && i === steps.length - 1;
+    g.fillStyle = cur ? '#eceef5' : '#2f8f70';
+    g.fillRect(i * w + 3, y(m) - rh * 0.4, w - 6, rh * 0.8);
+    if (cur && sung != null) { g.fillStyle = '#f2b84b'; g.beginPath(); g.arc(i * w + w / 2, Math.max(6, Math.min(H - 6, y(sung))), 10, 0, 7); g.fill(); }
+  });
 }
-function setPhase(p) {
-  phase = p;
-  if (p === 1) {
-    $('phaseTitle').textContent = 'Étape 1 · Vers le grave';
-    $('phaseTxt').textContent = "Commence à une note confortable, puis descends note par note jusqu'à la plus basse que tu tiens proprement.";
-    $('btnNext').textContent = "Passer à l'aigu";
-  } else {
-    $('phaseTitle').textContent = "Étape 2 · Vers l'aigu";
-    $('phaseTxt').textContent = "Repars d'une note confortable et monte note par note, sans forcer ni crier. Arrête-toi dès que ça serre.";
-    $('btnNext').textContent = 'Voir mon résultat';
-  }
-}
+$('btnStart').onclick = startMic;
+$('btnReplay').onclick = () => { if (stair && !stair.done) { refUntil = playRef(stair.target); stair.t0 = null; } };
+$('btnGiveUp').onclick = () => { if (!stair) return; stair.giveUp(); updateStats(); nextStep(); };
+$('btnStopTest').onclick = () => { stopMic(); stair = null; showVoix(); };
 function saveRange(lo, hi) {
   const t = classifyVoice(lo, hi);
   Object.assign(profiles[who], { low: lo, high: hi, type: t.k, gender: t.g, date: new Date().toISOString().slice(0, 10) });
   saveProfiles(); showVoix();
 }
-$('btnStart').onclick = startMic;
-$('btnReset').onclick = () => { low = high = null; hist = []; tracker.reset(); setPhase(1); };
-$('btnNext').onclick = () => { if (phase === 1) { setPhase(2); return; } stopMic(); saveRange(low, high); };
-$('btnRedo').onclick = () => { $('result').hidden = true; $('intro').hidden = false; $('recCard').hidden = false; };
+$('btnRedo').onclick = () => { $('result').hidden = true; $('intro').hidden = false; $('recCard').hidden = false; showStart(); };
 $('btnGoChant').onclick = () => tab('chant');
 
 async function decodeFile(file) {
@@ -734,7 +952,7 @@ $('recFile').onchange = async e => {
 function showVoix() {
   $('live').hidden = true;
   const p = profiles[who];
-  if (!hasRange(who)) { $('intro').hidden = false; $('recCard').hidden = false; $('result').hidden = true; return; }
+  if (!hasRange(who)) { $('intro').hidden = false; $('recCard').hidden = false; $('result').hidden = true; showStart(); return; }
   $('intro').hidden = true; $('recCard').hidden = true; $('result').hidden = false;
   const t = TYPES.find(x => x.k === p.type), [cl, ch] = comfort(p.low, p.high);
   $('rWho').textContent = 'Résultat · ' + pName(who);
@@ -779,10 +997,7 @@ function initPrompt() {
     promptInit = true;
   }
   const p = profiles[who];
-  if (hasRange(who)) {
-    $('selType').value = p.type; $('selGender').value = p.gender;
-    $('pInfo').textContent = `Pour ${pName(who)}, d'après le test du ${p.date.split('-').reverse().join('/')}.`;
-  } else $('pInfo').innerHTML = '<span class="warn">Pas encore de test pour ' + pName(who) + ' : tessiture standard du type choisi.</span>';
+  if (hasRange(who)) { $('selType').value = p.type; $('selGender').value = p.gender; }
   renderPrompt();
 }
 function renderPrompt() {
@@ -790,6 +1005,12 @@ function renderPrompt() {
   const range = (hasRange(who) && p.type === t.k) ? [p.low, p.high] : [t.lo + 2, t.hi - 2];
   const r = buildPrompt(range, $('selStyle').value, t.k, $('selGender').value);
   $('out').value = r.text;
+  if (hasRange(who) && p.type === t.k) {
+    const [cl, ch] = comfort(p.low, p.high);
+    $('pInfo').innerHTML = `<span class="pill ok">✓ Basé sur le test de ${esc(pName(who))} du ${p.date.split('-').reverse().join('/')}</span><br>Zone confortable ${fullName(cl)} → ${fullName(ch)} : le prompt demande une mélodie dans cette zone. Refais le test et le prompt change.`;
+  } else if (hasRange(who)) {
+    $('pInfo').innerHTML = `<span class="pill warn">Type de voix changé à la main</span><br>Le prompt utilise la tessiture standard « ${t.fr} », pas ton test. Remets « ${TYPES.find(x => x.k === p.type).fr} » pour utiliser ton test.`;
+  } else $('pInfo').innerHTML = `<span class="pill warn">Pas encore de test pour ${esc(pName(who))}</span><br>Le prompt utilise la tessiture standard « ${t.fr} ». Fais le test dans « Ma voix » pour l'adapter à toi.`;
   $('pSum').innerHTML = `<span class="pill">Tonalité : ${r.keyFr} (${r.key})</span><span class="pill">Mélodie : ${fullName(r.tlo)} → ${fullName(r.thi)}</span><span class="pill">${STYLES[$('selStyle').value].bpm} BPM</span>`;
 }
 $('btnCopy').onclick = async () => {
@@ -826,8 +1047,31 @@ const DB = {
 };
 const best = LS.get('voixlibre.best', {});
 
+let recWho = 1, recN = 10;
+function showRec() {
+  $('rec1').textContent = pName(1); $('rec2').textContent = pName(2);
+  $('rec1').classList.toggle('on', recWho === 1); $('rec2').classList.toggle('on', recWho === 2);
+  const p = profiles[recWho];
+  if (!hasRange(recWho)) { $('recInfo').textContent = `Fais le test dans « Ma voix » pour ${pName(recWho)} : l'appli choisira les chansons qui tiennent dans sa voix.`; $('recList').innerHTML = ''; $('recMore').hidden = true; return; }
+  const r = recommend(p.low, p.high), [cl, ch] = comfort(p.low, p.high);
+  $('recInfo').textContent = `${r.length} chansons tiennent dans ta voix (${fullName(p.low)} → ${fullName(p.high)}). Les plus confortables d'abord :`;
+  $('recList').innerHTML = r.slice(0, recN).map(x => {
+    const a = x.lo + x.oct + x.tr, b = x.hi + x.oct + x.tr;
+    const fit = x.outC === 0 ? '<span class="pill ok">Confortable</span>' : `<span class="pill warn">${x.outC} demi-ton${x.outC > 1 ? 's' : ''} hors zone confortable</span>`;
+    const oct = x.oct ? `<span class="pill">à l'octave ${x.oct < 0 ? 'en dessous' : 'au-dessus'}</span>` : '';
+    const tr = x.tr ? `<span class="pill">karaoké ${x.tr > 0 ? '+' : '−'}${Math.abs(x.tr)} demi-ton${Math.abs(x.tr) > 1 ? 's' : ''}</span>` : '';
+    const q = encodeURIComponent(`${x.a} ${x.t} karaoke`);
+    return `<div class="song"><div class="info"><div class="t">${esc(x.t)}</div><div class="s">${esc(x.a)} · tu chantes ${fullName(a)} → ${fullName(b)}</div><div>${fit}${oct}${tr}</div></div><a class="btn alt small" href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">Karaoké ↗</a></div>`;
+  }).join('');
+  $('recMore').hidden = r.length <= recN;
+}
+$('rec1').onclick = () => { recWho = 1; recN = 10; showRec(); };
+$('rec2').onclick = () => { recWho = 2; recN = 10; showRec(); };
+$('recMore').onclick = () => { recN += 10; showRec(); };
+
 let imported = [];
 async function showList() {
+  recWho = who; showRec();
   $('playView').hidden = true; $('listView').hidden = false;
   imported = await DB.all();
   const z1 = zoneOf(1), z2 = zoneOf(2);
@@ -949,7 +1193,7 @@ const P = {
       (this.mode === 'duo' && zs[1] ? ` <span class="pill ${fitLabel(lo, hi, zs[1]).k}">${fitLabel(lo, hi, zs[1]).t} pour ${pName(2)}</span>` : '');
     this.reset(); draw();
   },
-  reset() { this.offset = 0; this.scorer = new Scorer((this.phrases || []).length || 1); this.trail = []; this.last = null; $('results').hidden = true; $('verdict').textContent = ''; $('needle').style.opacity = .25; },
+  reset() { this.offset = 0; this.scorer = new Scorer((this.phrases || []).length || 1); this.trail = []; this.last = null; $('results').hidden = true; this.view = null; tunerP.set(null); },
   pos() { return this.playing ? this.offset + (AC.currentTime - this.t0) * this.rate : this.offset; },
   singerOf(ph) { return this.mode === 'duo' ? (ph % 2) + 1 : this.singer; },
   async play() {
@@ -994,7 +1238,7 @@ const P = {
     $('btnPlay').textContent = '▶ Démarrer';
   },
 };
-let micStream = null, micAn = null, micBuf = null, lastAn = 0;
+let micStream = null, micAn = null, micBuf = null, lastAn = 0, pGate = new VoiceGate();
 
 /* synthé : voix guide « aah » + accords + basse + décompte */
 function scheduleSynth(p, when) {
@@ -1057,20 +1301,21 @@ function loop() {
   if (micAn && now - lastAn > 30) {
     lastAn = now;
     micAn.getFloatTimeDomainData(micBuf);
-    const r = yin(micBuf, AC.sampleRate);
-    const sung = (r.f > 0 && r.rms > 0.008 && r.clarity > 0.75) ? freqToMidi(r.f) : null;
+    const r = yin(micBuf, AC.sampleRate), on = pGate.push(r.rms);
+    setLevel('lvlP', r.rms, on);
+    const sung = (on && r.f > 0 && r.clarity > 0.7) ? freqToMidi(r.f) : null;
     // latence : sortie (ce que tu entends) + entrée (micro et fenêtre d'analyse)
     const lat = (AC.outputLatency || 0) + (AC.baseLatency || 0) + 0.06;
     const t = P.pos() - lat * P.rate;
     const res = P.scorer.add(P.notes, t, sung);
-    if (sung != null) {
-      let dm = sung;
-      if (res && res.c != null) dm = P.notes[res.i].m + res.c / 100;
-      P.trail.push({ t, m: dm, k: res && res.c != null ? judge(res.c) : 'none' });
-    } else P.trail.push({ t, m: null });
+    // curseur : écart à la note la plus proche dans le temps (même entre deux notes)
+    let near = res ? res.i : -1;
+    if (near < 0) { let bd = 0.5; P.notes.forEach((n, k) => { const d = t < n.t ? n.t - t : t - (n.t + n.d); if (d >= 0 && d < bd) { bd = d; near = k; } }); }
+    const c = (sung != null && near >= 0) ? (res && res.c != null ? res.c : foldCents(sung, P.notes[near].m)) : null;
+    if (sung != null) P.trail.push({ t, m: near >= 0 ? P.notes[near].m + c / 100 : sung, k: c != null ? judge(c) : 'none' });
+    else P.trail.push({ t, m: null });
     if (P.trail.length > 600) P.trail.splice(0, 100);
-    P.last = res && res.c != null ? res.c : (sung == null ? null : P.last);
-    showGauge(res, sung);
+    tunerP.set(c);
   }
   const t = P.pos();
   const i = noteAt(P.notes, t), ph = i >= 0 ? P.notes[i].ph : nextPhrase(t);
@@ -1088,19 +1333,6 @@ function showSinger(ph, t) {
   el.textContent = (P.mode === 'duo' ? 'À toi : ' : '') + pName(s) + ` · phrase ${ph + 1}/${P.phrases.length}`;
   el.style.background = s === 1 ? '#1f4d3f' : '#3a2f5c'; el.style.color = 'var(--txt)';
 }
-function showGauge(res, sung) {
-  const nd = $('needle'), v = $('verdict');
-  if (!res) { nd.style.opacity = .25; v.textContent = ''; return; }
-  if (res.c == null) { nd.style.opacity = .25; v.textContent = 'Chante !'; v.style.color = 'var(--mut)'; return; }
-  const c = Math.max(-100, Math.min(100, res.c));
-  nd.style.left = (50 + c / 2) + '%'; nd.style.opacity = 1;
-  const k = judge(res.c);
-  v.textContent = k === 'ok' ? 'Juste' : (res.c > 0 ? 'Un peu haut' : 'Un peu bas') + (k === 'off' ? ' · trop' : '');
-  if (k === 'off') v.textContent = res.c > 0 ? 'Trop haut' : 'Trop bas';
-  v.style.color = k === 'ok' ? 'var(--acc)' : k === 'near' ? 'var(--acc2)' : 'var(--bad)';
-  nd.style.background = v.style.color;
-}
-
 /* rouleau de notes */
 function draw() {
   const cv = $('roll'); if (!cv || $('playView').hidden || !P.notes) return;
@@ -1108,16 +1340,21 @@ function draw() {
   const W = Math.round(cw * dpr), H = Math.round(cw * 0.62 * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d'), t = P.pos();
-  const ms = P.notes.map(n => n.m), lo = Math.min(...ms) - 3, hi = Math.max(...ms) + 3;
-  const rowH = H / (hi - lo + 1), y = m => H - (m - lo + 0.5) * rowH;
+  // zoom : 9 demi-tons visibles, centrés en douceur sur la note en cours ou la prochaine
+  let ci = noteAt(P.notes, t); if (ci < 0) ci = P.notes.findIndex(n => n.t > t); if (ci < 0) ci = P.notes.length - 1;
+  const goal = P.notes[ci].m; P.view = P.view == null ? goal : P.view + (goal - P.view) * 0.08;
+  const span = 9, lo = P.view - span / 2, hi = P.view + span / 2;
+  const rowH = H / span, y = m => H - (m - lo) * rowH;
   const nowX = W * 0.28, pps = W / 7, x = tt => nowX + (tt - t) * pps;
   g.clearRect(0, 0, W, H);
   // lignes de notes
   g.font = `${Math.round(11 * dpr)}px system-ui`; g.textBaseline = 'middle';
-  for (let m = Math.ceil(lo); m <= hi; m++) {
+  g.font = `${Math.round(12 * dpr)}px system-ui`;
+  for (let m = Math.floor(lo); m <= Math.ceil(hi); m++) {
     const black = [1, 3, 6, 8, 10].includes(pc(m));
-    g.fillStyle = black ? '#14161e' : '#191b25'; g.fillRect(0, y(m) - rowH / 2, W, rowH);
-    if (pc(m) === 0) { g.fillStyle = '#7a8099'; g.fillText(enName(m), 4 * dpr, y(m)); }
+    g.fillStyle = black ? '#14161e' : '#1a1c26'; g.fillRect(0, y(m) - rowH / 2, W, rowH);
+    g.fillStyle = '#262938'; g.fillRect(0, y(m) - rowH / 2, W, 1);
+    g.fillStyle = '#7a8099'; g.fillText(frName(m), 4 * dpr, y(m));
   }
   // notes cibles
   const curI = noteAt(P.notes, t);
@@ -1133,7 +1370,7 @@ function draw() {
   for (const p of P.trail) {
     if (p.m == null) continue;
     const xx = x(p.t); if (xx < 0 || xx > nowX + 2) continue;
-    g.fillStyle = col[p.k]; g.beginPath(); g.arc(xx, Math.max(4, Math.min(H - 4, y(p.m))), 3.2 * dpr, 0, 7); g.fill();
+    g.fillStyle = col[p.k]; g.beginPath(); g.arc(xx, Math.max(4, Math.min(H - 4, y(p.m))), 3.6 * dpr, 0, 7); g.fill();
   }
   // ligne « maintenant »
   g.fillStyle = '#eceef5'; g.fillRect(nowX - dpr, 0, 2 * dpr, H);
